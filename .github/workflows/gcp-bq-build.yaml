@@ -1,0 +1,116 @@
+name: Deploy BQ Tables and Procedures - latest
+env:
+  CLONE_TOKEN: GIT_TOKEN_CUSTOM
+  PUBLISH_TOKEN: PACKAGES_TOKEN
+on:
+  workflow_call:
+    inputs:
+      only_modified_files:
+        type: boolean
+        required: false
+        default: true
+jobs:
+  bq-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets[env.CLONE_TOKEN] }}  
+
+      - name: Setup Python Version
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8 # Install the python version needed
+
+      - name: Install Google Artifact py dependencies
+        run: |
+          python -m pip install --upgrade keyring
+          python -m pip install --upgrade keyrings.google-artifactregistry-auth
+
+      - name: Dev
+        if: ( github.ref_name != 'main' && github.ref_name != 'hml') || contains(github.ref_name, 'dev')
+        run: |
+          echo ENVIRONMENT="dev"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="350262471742"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-dev"                               >> $GITHUB_ENV
+
+      - name: Hml
+        if: github.ref_name == 'hml'
+        run: |
+          echo ENVIRONMENT="hml"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="961402051661"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-hml"                               >> $GITHUB_ENV
+
+      - name: Prd
+        if: github.ref_name == 'main'
+        run: |
+          echo ENVIRONMENT="prd"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="996952320853"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-prd"                               >> $GITHUB_ENV
+
+      - name: Set vars
+        run: |
+          echo WORKLOAD_IDENTITY_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"   >> $GITHUB_ENV
+          echo SERVICE_ACCOUNT="github-actions@${PROJECT_ID}.iam.gserviceaccount.com"       >> $GITHUB_ENV
+          echo REPOSITORY_REGION="us-east1"                                                 >> $GITHUB_ENV
+          echo REPOSITORY_NAME="mtx-dados-py-repo"                                          >> $GITHUB_ENV
+
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+        with:
+          version: '>= 390.0.0'
+
+      - name: 'Use gcloud cli'
+        run: 'gcloud info'
+ 
+      - name: Set project id
+        run: gcloud config set project ${{ env.PROJECT_ID }}
+
+      - name: Keyring list backends
+        run: keyring --list-backends
+      
+      - name: List settings from Artifact Repository
+        run: |
+          gcloud artifacts print-settings python \
+            --project=${{ env.PROJECT_ID }} \
+            --repository=${{ env.REPOSITORY_NAME }} \
+            --location=${{ env.REPOSITORY_REGION }}
+
+      - name: Install `sql-templated` lib from Artifact Repository
+        run: |
+          python -m pip install --upgrade \
+            --extra-index-url "https://${{ env.REPOSITORY_REGION }}-python.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_NAME }}/simple/" \
+            sql-templated
+
+      - name: Get changed files
+        uses: jitterbit/get-changed-files@v1
+        id: changed-files
+        with:
+          format: space-delimited
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set action vars
+        run: |
+          echo "ONLY_MODIFIED_FILES=${{ inputs.only_modified_files }}"                     >> $GITHUB_ENV
+          echo "CHANGED_FILES_PATH=${{ steps.changed-files.outputs.added_modified }}"      >> $GITHUB_ENV
+      
+      - name: Processing BQ Tables Files
+        uses: Matrix-Energia/matrix.devops.pipelines/.github/actions/bq-execute-query@latest
+        with:
+          bq_file_type: 'tables'
+          
+      - name: Processing BQ Procedures Files
+        uses: Matrix-Energia/matrix.devops.pipelines/.github/actions/bq-execute-query@latest
+        with:
+          bq_file_type: 'procedures'

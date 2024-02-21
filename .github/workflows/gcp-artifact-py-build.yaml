@@ -1,0 +1,116 @@
+name: Deploy Python Lib to Artifact Registry Pipeline - latest
+env:
+  CLONE_TOKEN: GIT_TOKEN_CUSTOM
+  PUBLISH_TOKEN: PACKAGES_TOKEN
+on:
+  workflow_call:
+    inputs:
+      py_version:
+        type: string
+        required: false
+        default: '3.8'
+jobs:
+  gcp-artifact-py-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets[env.CLONE_TOKEN] }}  
+
+      - name: Dev
+        if: ( github.ref_name != 'main' && github.ref_name != 'hml') || contains(github.ref_name, 'dev')
+        run: |
+          echo ENVIRONMENT="dev"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="350262471742"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-dev"                               >> $GITHUB_ENV
+
+      - name: Hml
+        if: github.ref_name == 'hml'
+        run: |
+          echo ENVIRONMENT="hml"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="961402051661"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-hml"                               >> $GITHUB_ENV
+
+      - name: Prd
+        if: github.ref_name == 'main'
+        run: |
+          echo ENVIRONMENT="prd"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="996952320853"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-prd"                               >> $GITHUB_ENV
+
+      - name: Set vars
+        run: |
+          echo WORKLOAD_IDENTITY_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"   >> $GITHUB_ENV
+          echo SERVICE_ACCOUNT="github-actions@${PROJECT_ID}.iam.gserviceaccount.com"       >> $GITHUB_ENV
+          echo REPOSITORY_REGION="us-east1"                                                 >> $GITHUB_ENV
+          echo REPOSITORY_NAME="mtx-dados-py-repo"                                          >> $GITHUB_ENV
+
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+    
+      - name: Setup Python Version
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ inputs.py_version }}
+
+      - name: Install Google Artifact py dependencies
+        run: |
+          python -m pip install --upgrade keyring
+          python -m pip install --upgrade keyrings.google-artifactregistry-auth
+          python -m pip install --upgrade build
+          python -m pip install --upgrade twine
+          
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+        with:
+          version: '>= 390.0.0'
+
+      - name: 'Use gcloud cli'
+        run: 'gcloud info'
+ 
+      - name: Set project id
+        run: gcloud config set project ${{ env.PROJECT_ID }}
+
+      - name: Check if Repository exists
+        id: check-repo
+        run: |
+          if gcloud artifacts repositories list \
+              --location=${{ env.REPOSITORY_REGION }} \
+              --format=text | grep -q ${{ env.REPOSITORY_NAME }}; then
+            echo "Repository found"
+            aux=true
+          else
+            echo "Repository not found"
+            aux=false
+          fi
+          echo "REPO_EXISTS=$aux" >> "$GITHUB_OUTPUT"
+
+      - name: Create Repository
+        if: "${{ steps.check-repo.outputs.REPO_EXISTS == 'false' }}"
+        run: |
+          echo ${{ steps.check-repo.outputs.REPO_EXISTS }}
+          gcloud artifacts repositories create ${{ env.REPOSITORY_NAME }} \
+            --repository-format=python \
+            --location=${{ env.REPOSITORY_REGION }} \
+            --description="Python package repo"
+
+      - name: Keyring list backends
+        run: keyring --list-backends
+
+      - name: Build Python Lib
+        run: |
+          python -m build
+
+      - name: Upload Lib to Repository
+        run: |
+          python3 -m twine upload \
+            --verbose \
+            --repository-url https://${{env.REPOSITORY_REGION}}-python.pkg.dev/${{env.PROJECT_ID}}/${{env.REPOSITORY_NAME}}/ dist/*

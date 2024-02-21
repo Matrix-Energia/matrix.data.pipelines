@@ -1,0 +1,74 @@
+name: Deploy DAGs on Google Cloud Composer - latest
+env:
+  CLONE_TOKEN: GIT_TOKEN_CUSTOM
+  PUBLISH_TOKEN: PACKAGES_TOKEN
+on:
+  workflow_call:
+jobs:
+  dag-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets[env.CLONE_TOKEN] }}
+      
+      - name: Dev
+        if: ( github.ref_name != 'main' && github.ref_name != 'hml') || contains(github.ref_name, 'dev')
+        run: |
+          echo ENVIRONMENT="dev"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="350262471742"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-dev"                               >> $GITHUB_ENV
+
+      - name: Hml
+        if: github.ref_name == 'hml'
+        run: |
+          echo ENVIRONMENT="hml"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="961402051661"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-hml"                               >> $GITHUB_ENV
+
+      - name: Prd
+        if: github.ref_name == 'main'
+        run: |
+          echo ENVIRONMENT="prd"                                                      >> $GITHUB_ENV
+          echo PROJECT_NUMBER="996952320853"                                          >> $GITHUB_ENV
+          echo PROJECT_ID="matrix-plataforma-dados-prd"                               >> $GITHUB_ENV
+
+      - name: Set vars
+        run: |
+          APP_NAME="${GITHUB_REPOSITORY/'Matrix-Energia/'/}"
+          APP_NAME="${APP_NAME/matrix./}"
+          APP_NAME="${APP_NAME/lakehouse./}"
+          APP_NAME="${APP_NAME//./-}"
+          ENVIRONMENT_LOWER="${ENVIRONMENT,,}"
+
+          echo WORKLOAD_IDENTITY_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github-pool/providers/github-provider"       >> $GITHUB_ENV
+          echo SERVICE_ACCOUNT="github-actions@${PROJECT_ID}.iam.gserviceaccount.com"             >> $GITHUB_ENV
+          echo COMPOSER_BUCKET="matrix-${{ env.PROJECT_NUMBER }}-composer-${ENVIRONMENT_LOWER}"   >> $GITHUB_ENV
+          echo APP_NAME="$APP_NAME"                                                               >> $GITHUB_ENV
+
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+        with:
+          version: '>= 390.0.0'
+
+      - name: 'Use gcloud cli'
+        run: 'gcloud info'
+ 
+      - name: Set project id
+        run: gcloud config set project ${{ env.PROJECT_ID }}
+      
+      - name: Copy DAGs files to bucket
+        run: |
+          printf "composer bucket: [%s]\n" "${{ env.COMPOSER_BUCKET }}"
+          gsutil cp -r dags/* gs://${{ env.COMPOSER_BUCKET }}/dags/${{ env.APP_NAME }}/

@@ -1,0 +1,33 @@
+name: 'bq execute query'
+description: 'Execute a SQL query in BigQuery'
+inputs:
+  bq_file_type:
+    description: 'Type of bq file. Could be `tables` or `procedures`.'
+    required: true
+runs:
+  using: "composite"
+  steps:
+      - name: Processing BQ Files
+        shell: bash
+        run: |
+          if [[ "${{ env.ONLY_MODIFIED_FILES }}" == "true" ]]; then            
+            content_arr=("${{ env.CHANGED_FILES_PATH }}")
+            BQ_FILES=$(echo ${content_arr[@]} | sed 's/ /\n/g' | grep -E '.*([sql|SQL]\/${{ inputs.bq_file_type }}).*\.sql') || echo ""
+          else
+            BQ_FILES=$(find . -regextype posix-egrep -iregex ".*(sql\/${{ inputs.bq_file_type }}).*\.sql" -print)
+          fi
+
+          printf "bq files: [ %s ]\n" "$BQ_FILES"
+          for i in $BQ_FILES; do
+
+            printf "file path: [%s]\n" "$i"
+
+            templated_sql=$(sql-templated \
+              --project-id ${{ env.PROJECT_ID }} \
+              --project-number ${{ env.PROJECT_NUMBER }} \
+              --environment ${{ env.ENVIRONMENT }} \
+              --file-path ${i})
+            
+            bq query --use_legacy_sql=false "${templated_sql}"
+            
+          done
