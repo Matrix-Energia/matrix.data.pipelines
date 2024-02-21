@@ -106,11 +106,11 @@ jobs:
           echo "CHANGED_FILES_PATH=${{ steps.changed-files.outputs.added_modified }}"      >> $GITHUB_ENV
       
       - name: Processing BQ Tables Files
-        uses: Matrix-Energia/matrix.devops.pipelines/.github/actions/bq-execute-query@latest
+        uses: Matrix-Energia/matrix.data.pipelines/.github/actions/bq-execute-query@latest
         with:
           bq_file_type: 'tables'
           
       - name: Processing BQ Procedures Files
-        uses: Matrix-Energia/matrix.devops.pipelines/.github/actions/bq-execute-query@latest
+        uses: Matrix-Energia/matrix.data.pipelines/.github/actions/bq-execute-query@latest
         with:
           bq_file_type: 'procedures'
