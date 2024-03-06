@@ -4,7 +4,9 @@ env:
   PUBLISH_TOKEN: PACKAGES_TOKEN
 on:
   # workflow_call:
-  push:
+  pull_request:
+    branches:
+      - '*'
 jobs:
   py-build-test:
     runs-on: ubuntu-latest
