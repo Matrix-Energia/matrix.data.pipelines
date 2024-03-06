@@ -1,4 +1,4 @@
-import app
+from app import main
 
 def test_capital_case():
-    assert app.capital_case('semaphore') == 'Semaphore'
+    assert main.capital_case('semaphore') == 'Semaphore'
