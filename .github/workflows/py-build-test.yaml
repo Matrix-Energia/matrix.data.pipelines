@@ -6,7 +6,7 @@ on:
   # workflow_call:
   push:
 jobs:
-  bq-build:
+  py-build-test:
     runs-on: ubuntu-latest
     permissions:
       contents: "read"
