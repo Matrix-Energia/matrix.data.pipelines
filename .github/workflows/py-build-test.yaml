@@ -11,7 +11,8 @@ jobs:
   py-build-test:
     runs-on: ubuntu-latest
     permissions:
-      # contents: "read"
+      contents: "write"
+      pull-requests: "write"
       id-token: "write"
     steps:
       - name: Checkout
@@ -33,10 +34,14 @@ jobs:
 
       - name: Build coverage file
         run: |
-          pytest --junitxml=pytest.xml --cov-report=term-missing:skip-covered --cov=app tests/ | tee pytest-coverage.txt
+          pytest tests/ \
+            --junitxml=pytest.xml \
+            --cov-report=term-missing:skip-covered 
+            --cov=app  | tee pytest-coverage.txt
 
       - name: Pytest coverage comment
         uses: MishaKav/pytest-coverage-comment@main
         with:
           pytest-coverage-path: ./pytest-coverage.txt
           junitxml-path: ./pytest.xml
+          github-token: ${{ secrets[env.CLONE_TOKEN] }}
