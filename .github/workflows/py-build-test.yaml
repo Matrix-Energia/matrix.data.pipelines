@@ -11,7 +11,7 @@ jobs:
   py-build-test:
     runs-on: ubuntu-latest
     permissions:
-      contents: "write"
+      contents: "read"
       pull-requests: "write"
       id-token: "write"
     steps:
